@@ -8,7 +8,7 @@ access traces.  However, tracing memory accesses from multiple threads suffers
 from the atomic instrumentation problem -- instructions responsible for 
 tracing/logging an access happen separately from that access.  Races between
 threads may result in a different order being traced than actually occurs.
-This tool provides atomic instrumentation by simulating cache coherence.  In  
+This tool provides atomic instrumentation by simulating cache coherence.  In
 addition, the tool will trace thread start/end, an optional region of interest,
 and user-provided fuction calls and returns.
 
