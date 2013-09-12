@@ -1,0 +1,2 @@
+atomic_trace::special_malloc
+atomic_trace::special_free
