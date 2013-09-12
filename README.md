@@ -22,7 +22,7 @@ This README documents the tracing pintool and example test case.  This tool was
 developed using verion 2.12-58423 of PIN on Ubuntu 12.04.  There are no plans
 to support operating systems other than Linux or systems other than x86_64.
 The pintool relies on the boots libraries.  This software comes with no support
-but may be useful to others
+but may be useful to others.  This project uses the MIT license.
 
 Quick Start
 ===========
