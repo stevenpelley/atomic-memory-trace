@@ -31,7 +31,7 @@ build the pintool
 Change into the trace directory
 
 ```
-% make PIN_ROOT=<your pin root> trace
+% make PIN_ROOT=<your pin root>
 ```
 
 Run the tool as any other pintool:
