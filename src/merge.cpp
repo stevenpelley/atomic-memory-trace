@@ -397,13 +397,12 @@ void merge() {
 }
 
 int main(int argc, char **argv) {
+  bool keep_timestamps = argc > 1 && std::string(argv[1]) == "-t";
   std::string line;
   int64_t line_count = 0;
   char buf[128];
   while (std::cin.getline(buf, 128)) {
     int64_t len = strlen(buf);
-
-  //while (std::getline(std::cin, line)) {
     ++line_count;
 
     int64_t pos1, timestamp, threadid;
@@ -434,8 +433,13 @@ int main(int argc, char **argv) {
     }
 
     // strip out the timestamp from the string as it is enqueued
-    //bool was_empty = thread_queue->enqueue(timestamp, buf, len);
-    bool was_empty = thread_queue->enqueue(timestamp, buf+pos1+1, len - (pos1+1));
+    bool was_empty;
+    if (keep_timestamps) {
+      was_empty = thread_queue->enqueue(timestamp, buf, len);
+    } else {
+      was_empty = thread_queue->enqueue(timestamp, buf+pos1+1, len - (pos1+1));
+    }
+
     if (is_thread_finish) thread_queue->finish();
 
     // if thread had been empty update heap of each thread's min available entry
