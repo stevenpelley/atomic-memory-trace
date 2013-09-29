@@ -190,9 +190,9 @@ class thread_data_t {
               assert(trace_file);
               tdata->buffered_entries = 0;
               tdata->trace_stream.str(std::string());
+              last_flushed.left.erase(pin_threadid);
+              last_flushed.left.insert(std::pair<int64_t, int64_t>(pin_threadid, this_time));
             }
-            last_flushed.left.erase(pin_threadid);
-            last_flushed.left.insert(std::pair<int64_t, int64_t>(pin_threadid, this_time));
           }
         }
       }
