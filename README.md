@@ -89,6 +89,10 @@ Tool Options
     Allowable timestamp difference.  If threads diverge in timestamps by beyond
     this limit threads will synch and flush other threads.  This makes merging
     the output significantly easier.
+* -c
+    Trace Failed Compare-And-Swaps.  Default 0 (no).  Generally every CAS
+    instruction is considered a write, even when the instruction fails.
+    Use this option to only log CAS as writes when they succeed.
 
 Output Format
 =============
@@ -259,6 +263,9 @@ and
 
 verify that the output of both the simulation and the actual program are the
 same.  Use the -t 1 flag for trace.so and see that the outputs differ.
+
+A similar set of tools (inc_cas.cpp, inc_sim_cas.py) tests the functionality
+of the -c option (whether or not to trace failed CAS as a write).
 
 Internals: Locking Protocol
 ===========================
