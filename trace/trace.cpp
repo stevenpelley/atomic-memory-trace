@@ -89,9 +89,11 @@ bool require_roi;
 bool register_threads = false;
 bool turn_off_locks = false;
 
+/////////////
 // global lock covers the file buffer, thread count, etc
 //   may not be held beyond analysis function/callback return
 //   i.e., critical section must be contained in function
+/////////////
 struct lock_wrapper_t {
   PIN_MUTEX lock;
   char padding [56];
@@ -108,6 +110,9 @@ lock_wrapper_t file_lock;
 std::ofstream trace_file;
 last_flushed_t last_flushed; // pin threadid to last_flushed
 int64_t last_flushed_cache; // occassionally computed min flushed
+/////////////
+// end of global lock protection
+/////////////
 
 // thread tracking
 lock_wrapper_t thread_start_fini_lock;
@@ -282,10 +287,13 @@ class thread_data_t {
   uint64_t read1_address;
   uint64_t read2_address;
   uint64_t write_address;
+  uint64_t max_locked_timestamp;
 
   vector<int64_t> flush_others;
 
+  ////////////////////
   // the following are covered by this lock
+  ////////////////////
   int8_t padding [64];
   PIN_MUTEX thread_lock;
 
@@ -294,6 +302,9 @@ class thread_data_t {
   int64_t lamport_timestamp;
 
   int8_t padding2 [64];
+  ////////////////////
+  // end thread lock protection
+  ////////////////////
 };
 
 /* ===================================================================== */
@@ -496,24 +507,36 @@ void  memory_access_write_a(
   }
 }
 
+void memory_access_acquire_locks_a(THREADID pin_threadid) {
+  thread_data_t* tdata = get_tls(pin_threadid);
+  if (tdata->trace_this_access) {
+    // locks released and timestamps updated at next instruction/function
+    if (turn_off_locks) {
+      tdata->max_locked_timestamp = 0;
+    } else {
+      tdata->max_locked_timestamp = acquire_address_locks(pin_threadid);
+    }
+  }
+}
+
 void memory_access_footer_a(THREADID pin_threadid) {
   thread_data_t* tdata = get_tls(pin_threadid);
 
   // acquire necessary locks (global or addresses) and trace
   if (tdata->trace_this_access) {
     int64_t threadid = tdata->user_threadid;
-    // locks will be released and timestamps updated at next function
-    int64_t max_locked_timestamp;
-    if (turn_off_locks) {
-      max_locked_timestamp = 0;
-    } else {
-      max_locked_timestamp = acquire_address_locks(pin_threadid);
-    }
+    ////// locks will be released and timestamps updated at next function
+    ////int64_t max_locked_timestamp;
+    ////if (turn_off_locks) {
+    ////  max_locked_timestamp = 0;
+    ////} else {
+    ////  max_locked_timestamp = acquire_address_locks(pin_threadid);
+    ////}
 
     {
       pin_critical_section CS(&tdata->thread_lock);
       if (*static_cast<volatile bool*>(&tdata->trace_this_access)) {
-        int64_t new_time = max_locked_timestamp;
+        int64_t new_time = tdata->max_locked_timestamp;
         if (tdata->lamport_timestamp > new_time) new_time = tdata->lamport_timestamp;
         ++new_time;
 
@@ -537,6 +560,11 @@ void memory_access_footer_a(THREADID pin_threadid) {
       }
     }
   }
+}
+
+// for any atomic RMW that might fail
+// on failure set tdata->is_write to false
+void memory_access_CAS_footer_a(THREADID pin_threadid) {
 }
 
 // instructions that do not access memory should
@@ -878,6 +906,12 @@ VOID Instruction(INS ins, void * v) {
         , IARG_END
         );
     }
+
+    INS_InsertPredicatedCall(
+      ins, IPOINT_BEFORE, (AFUNPTR) memory_access_acquire_locks_a
+      , IARG_THREAD_ID
+      , IARG_END
+      );
 
     INS_InsertPredicatedCall(
       ins, IPOINT_BEFORE, (AFUNPTR) memory_access_footer_a
