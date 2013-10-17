@@ -40,5 +40,9 @@ env_inc = env.Clone(CCFLAGS = '-pthread', LIBS='pthread')
 env_inc.Append(LIBS = [annotation_lib])
 env_inc.Program('inc.cpp')
 
+env_inc_cas = env.Clone(CCFLAGS = '-pthread', LIBS='pthread')
+env_inc_cas.Append(LIBS = [annotation_lib])
+env_inc_cas.Program('inc_cas.cpp')
+
 env_merge = env.Clone()
 env_merge.Program(['merge.cpp'])
