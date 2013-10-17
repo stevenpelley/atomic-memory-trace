@@ -86,6 +86,7 @@ class pin_critical_section {
 
 bool in_roi;
 bool require_roi;
+bool log_cas_fails;
 bool register_threads = false;
 bool turn_off_locks = false;
 
@@ -338,6 +339,9 @@ KNOB<bool> KnobTurnOff (KNOB_MODE_WRITEONCE, "pintool",
 KNOB<int64_t> KnobTimestampDifference (KNOB_MODE_WRITEONCE, "pintool",
     "d", "1000", "How far 2 threads can differ in timestamp before a thread attempts to flush the other's buffer and update its timestamp");
 
+KNOB<bool> KnobCASFailureWrites(KNOB_MODE_WRITEONCE, "pintool",
+    "c", "0", "log Compare-And-Swap as a write even when compare fails");
+
 /* ===================================================================== */
 /* Helper routines                                                     */
 /* ===================================================================== */
@@ -521,18 +525,9 @@ void memory_access_acquire_locks_a(THREADID pin_threadid) {
 
 void memory_access_footer_a(THREADID pin_threadid) {
   thread_data_t* tdata = get_tls(pin_threadid);
-
   // acquire necessary locks (global or addresses) and trace
   if (tdata->trace_this_access) {
     int64_t threadid = tdata->user_threadid;
-    ////// locks will be released and timestamps updated at next function
-    ////int64_t max_locked_timestamp;
-    ////if (turn_off_locks) {
-    ////  max_locked_timestamp = 0;
-    ////} else {
-    ////  max_locked_timestamp = acquire_address_locks(pin_threadid);
-    ////}
-
     {
       pin_critical_section CS(&tdata->thread_lock);
       if (*static_cast<volatile bool*>(&tdata->trace_this_access)) {
@@ -564,7 +559,18 @@ void memory_access_footer_a(THREADID pin_threadid) {
 
 // for any atomic RMW that might fail
 // on failure set tdata->is_write to false
-void memory_access_CAS_footer_a(THREADID pin_threadid) {
+unsigned int zf_bit = 1 << 6;
+void memory_access_CAS_footer_a(THREADID pin_threadid, ADDRINT flags_reg) {
+  thread_data_t* tdata = get_tls(pin_threadid);
+  if (tdata->trace_this_access) {
+    // CAS succeeded if Zero Flag is set, failed otherwise
+    // ZF is bit 6 of eflags
+    int result = flags_reg & zf_bit;
+    assert(tdata->is_write);
+    if (!result) {
+      tdata->is_write = false;
+    }
+  }
 }
 
 // instructions that do not access memory should
@@ -913,11 +919,34 @@ VOID Instruction(INS ins, void * v) {
       , IARG_END
       );
 
-    INS_InsertPredicatedCall(
-      ins, IPOINT_BEFORE, (AFUNPTR) memory_access_footer_a
-      , IARG_THREAD_ID
-      , IARG_END
-      );
+    OPCODE op = INS_Opcode(ins);
+    bool cmpxchg = op == XED_ICLASS_CMPXCHG || op == XED_ICLASS_CMPXCHG16B || op == XED_ICLASS_CMPXCHG8B;
+    // if atomic cas test for CAS success and trace AFTER instruction
+    if (!log_cas_fails && INS_IsAtomicUpdate(ins) && cmpxchg) {
+      assert(INS_HasFallThrough(ins));
+      assert(INS_IsMemoryWrite(ins));
+      INS_InsertPredicatedCall(
+        ins, IPOINT_AFTER, (AFUNPTR) memory_access_CAS_footer_a
+        , IARG_THREAD_ID
+        // must use REG_RFLAGS (although it is not documented)
+        // REG_EFLAGS and REG_FLAGS produce failures
+        // see http://tech.groups.yahoo.com/group/pinheads/message/6581
+        , IARG_REG_VALUE, REG_RFLAGS
+        , IARG_END
+        );
+
+      INS_InsertPredicatedCall(
+        ins, IPOINT_AFTER, (AFUNPTR) memory_access_footer_a
+        , IARG_THREAD_ID
+        , IARG_END
+        );
+    } else { // if not atomic CAS trace BEFORE instruction
+      INS_InsertPredicatedCall(
+        ins, IPOINT_BEFORE, (AFUNPTR) memory_access_footer_a
+        , IARG_THREAD_ID
+        , IARG_END
+        );
+    }
   } else {
     INS_InsertPredicatedCall(
       ins, IPOINT_BEFORE, (AFUNPTR) memory_access_release_a
@@ -983,6 +1012,7 @@ int main(int argc, char *argv[])
 
     register_threads = KnobRegisterThreads.Value();
     require_roi = KnobRequireROI.Value();
+    log_cas_fails = KnobCASFailureWrites.Value();
     vector<string>* trace_functions = read_trace_functions(KnobFunctionsFile.Value());
 
     accesses_flush = KnobAccessesBeforeFlush.Value();

@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # Copyright (c) 2013 Steven Pelley
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
