@@ -21,18 +21,18 @@
 # analyse the inc trace.
 # assert:
 #   exactly 8 bytes of persistent memory are accessed
-#   each access to this persistent memory a read and write (atomic inc)
+#   each access to this persistent memory is either a read or a read and write
+#     (inc here is implemented with CAS)
 #
 # compute and print:
-#   for each registered thread the number of successful increments to counter
-#   assuming counter is initialized to 0 compute the number of old value-even accesses
+#   for each registered thread the number of writes to counter (should be number of incs)
+#   for each registered thread the number of reads to counter
+#   -- each inc will read once before the CAS, read as part of the successful CAS
+#      and then once for every failure
 #
 # print out any context changes as these may cause inconsistencies
 
 class my_sim:
-  # constants
-  set_read1_write = set(['read1', 'write'])
-
   def __init__(self):
     self._special_address = None
     self._special_size = 0
@@ -42,29 +42,36 @@ class my_sim:
     import collections
     # threadid to increment
     self._increments = collections.defaultdict(int)
-    self._even_increments = collections.defaultdict(int)
+    self._reads = collections.defaultdict(int)
 
   def memory_access(self, line_num, threadid, have_read_1, have_read_2, have_write, read_1_address, read_size, read_2_address, write_address, write_size):
     if not self._special_address:
       return
 
+    read1 = have_read_1 and not have_read_2 and not have_write
+
+    RMW = (
+      have_read_1 and not have_read_2 and have_write and 
+      read_1_address == write_address and
+      read_size == write_size
+    )
+
+    read1_special = ( have_read_1 and (
+      (read_1_address < self._special_address and read_1_address + read_size >= self._special_address) or
+      (read_1_address >= self._special_address and read_1_address <= self._special_address + self._special_size)
+    ) )
+
+    read_first_8 = have_read_1 and read_1_address == self._special_address and read_size == 8
+
     # atomic inc to special address?
-    if (
-       # Read-Modify-Write (atomic inc)
-         have_read_1 and not have_read_2 and have_write and 
-         read_1_address == write_address and
-         read_size == write_size
-       ) and (
-       # matches special address
-         (write_address < self._special_address and write_address + write_size >= self._special_address) or
-         (write_address >= self._special_address and write_address <= self._special_address + self._special_size)
-       ):
+    if RMW and read1_special:
       # check that we touch exactly the first 8 bytes
-      assert write_address == self._special_address and write_size == 8
-      if self._special_value % 2 == 0:
-        self._even_increments[threadid] += 1
+      assert read_first_8 
       self._increments[threadid] += 1
       self._special_value += 1
+      self._reads[threadid] += 1
+    elif read1 and read1_special:
+      self._reads[threadid] += 1
 
   def start_thread(self, line_num, threadid):
     assert threadid not in self._active_threads
@@ -124,7 +131,9 @@ def main():
   # recreate the program output
   print("final counter value: {}".format(sim._special_value))
   for threadid in sorted(sim._increments.keys()):
-    print("thread\t{}\t{}\t{}".format(threadid, sim._increments[threadid], sim._even_increments[threadid]))
+    print("thread\t{}\t{}".format(threadid, sim._increments[threadid]))
+
+  print("fails: {}".format(sum(sim._reads.values())-(2*sim._special_value)))
 
 if __name__=="__main__":
   main()
