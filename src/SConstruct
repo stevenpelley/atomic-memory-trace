@@ -36,13 +36,17 @@ for key, value in ARGLIST:
 env_annotation = env.Clone()
 annotation_lib = env_annotation.Library('annotation', 'annotation.cpp')
 
-env_inc = env.Clone(CCFLAGS = '-pthread', LIBS='pthread')
-env_inc.Append(LIBS = [annotation_lib])
+env_inc = env.Clone()
+env_inc.Append(CCFLAGS = '-pthread', LIBS=['pthread', annotation_lib])
 env_inc.Program('inc.cpp')
 
-env_inc_cas = env.Clone(CCFLAGS = '-pthread', LIBS='pthread')
-env_inc_cas.Append(LIBS = [annotation_lib])
+env_inc_cas = env.Clone()
+env_inc_cas.Append(CCFLAGS = '-pthread', LIBS=['pthread', annotation_lib])
 env_inc_cas.Program('inc_cas.cpp')
 
 env_merge = env.Clone()
 env_merge.Program(['merge.cpp'])
+
+env_drain_buffer = env.Clone()
+env_drain_buffer.Append(CCFLAGS = '-pthread', LIBS=['pthread'])
+env_drain_buffer.Program(['drain_buffer.cpp'])
